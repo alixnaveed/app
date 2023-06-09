@@ -1,20 +1,12 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI,Request
+# from pydantic import BaseModel
 import uvicorn
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from transformers import BertTokenizer, BertForSequenceClassification
+import torch
 
 app = FastAPI()
 
-# Load the pre-trained SBERT model
-model = SentenceTransformer('bert-base-nli-mean-tokens')
-
-class SentenceInput(BaseModel):
-    sentences: list[str]
-
-class SentenceOutput(BaseModel):
-    sentence: str
-    embedding: list[float]
 
 @app.get("/")
 def read_root():
@@ -24,17 +16,32 @@ def read_root():
 def read_root():
     return {"Hello": "Hello"}
 
-@app.post("/embed")
-async def embed_sentences(input_data: SentenceInput):
-    sentences = input_data.sentences
-    embeddings = model.encode(sentences)
+def get_model():
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    model = BertForSequenceClassification.from_pretrained("pnichite/YTFineTuneBert")
+    return tokenizer,model
 
-    output_data = []
-    for sentence, embedding in zip(sentences, embeddings):
-        output = SentenceOutput(sentence=sentence, embedding=embedding.tolist())
-        output_data.append(output)
+d = {
+    
+  1:'Toxic',
+  0:'Non Toxic'
+}
 
-    return output_data
+tokenizer,model = get_model()
+
+@app.post("/predict")
+async def read_root(request: Request):
+    data = await request.json()
+    print(data)
+    if 'text' in data:
+        user_input = data['text']
+        test_sample = tokenizer([user_input], padding=True, truncation=True, max_length=512,return_tensors='pt')
+        output = model(**test_sample)
+        y_pred = np.argmax(output.logits.detach().numpy(),axis=1)  
+        response = {"Recieved Text": user_input,"Prediction": d[y_pred[0]]}
+    else:
+        response = {"Recieved Text": "No Text Found"}
+    return response
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host='0.0.0.0', port=8080, reload=True)
+    uvicorn.run("main:app",host='0.0.0.0', port=8080, reload=True, debug=True)
